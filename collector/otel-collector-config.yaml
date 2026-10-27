@@ -1,0 +1,20 @@
+# Rol del Collector: recibe las métricas por OTLP y las expone en formato Prometheus.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+
+exporters:
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    # Los nombres de las métricas ya vienen completos desde el simulador: no se agregan sufijos.
+    add_metric_suffixes: false
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      exporters: [prometheus, debug]

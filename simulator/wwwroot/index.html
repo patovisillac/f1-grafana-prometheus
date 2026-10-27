@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel de control - Carrera F1</title>
+<style>
+  :root {
+    --bg: #111217; --panel: #181b1f; --panel-2: #1f2329; --border: #2c3235;
+    --text: #d8d9da; --muted: #8e8e9a; --accent: #ff9830;
+    --ok: #73bf69; --warn: #f2cc0c; --err: #f2495c; --info: #5794f2;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
+  body { padding: 16px; max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 18px; margin: 0; }
+  h2 { font-size: 13px; margin: 0 0 8px; }
+  h3 { font-size: 12px; margin: 12px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .top { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .links a { color: var(--info); margin-left: 12px; text-decoration: none; font-size: 13px; }
+  .links a:hover { text-decoration: underline; }
+  .clock { font-family: var(--mono); color: var(--accent); }
+  .grid { display: grid; gap: 12px; grid-template-columns: 300px 1fr; align-items: start; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  .panel + .panel { margin-top: 12px; }
+  button { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 7px 10px; cursor: pointer; width: 100%; }
+  button:hover { border-color: var(--accent); }
+  button:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+  button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .btns { display: grid; gap: 8px; }
+  .three { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+  .btn-warn { border-color: #6b5a12; } .btn-err { border-color: #7a2630; }
+  .cars { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .car { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 10px; border-top: 3px solid var(--c); }
+  .car header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .badge { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+  .badge.nitro { color: var(--accent); border-color: var(--accent); }
+  .badge.bad { color: var(--err); border-color: var(--err); }
+  .row { display: grid; grid-template-columns: 78px 1fr 62px; gap: 8px; align-items: center; margin: 5px 0; font-size: 12px; }
+  .bar { height: 8px; background: var(--panel); border-radius: 3px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--ok); transition: width .4s; }
+  .sys { font-size: 13px; }
+  .sys b { font-weight: 600; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .err { color: var(--err); }
+  .logs { max-height: 330px; overflow: auto; font: 12px/1.6 var(--mono); }
+  .log { display: grid; grid-template-columns: 50px 52px 1fr; gap: 8px; }
+  .INFO { color: var(--info); } .WARN { color: var(--warn); } .ERROR { color: var(--err); }
+  .muted { color: var(--muted); font-size: 12px; }
+  @media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>Panel de control · carrera de F1</h1>
+  <div class="links">
+    <span class="clock" id="clock">T+ 00:00</span>
+    <a href="http://localhost:3001" target="_blank" rel="noopener">Grafana</a>
+    <a href="http://localhost:9091" target="_blank" rel="noopener">Prometheus</a>
+    <a href="http://localhost:8890/metrics" target="_blank" rel="noopener">Métricas del Collector</a>
+    <a href="http://localhost:8081" target="_blank" rel="noopener">cAdvisor</a>
+  </div>
+</div>
+
+<div class="grid">
+  <aside>
+    <section class="panel" aria-label="Eventos de la carrera">
+      <h2>Carrera</h2>
+      <div class="btns">
+        <div class="three" id="pitRow"></div>
+        <h3>Nitro (gasta batería)</h3>
+        <div class="three" id="nitroRow"></div>
+        <button data-action="safety-car" class="btn-warn">Safety car</button>
+        <button data-action="engine-failure" class="btn-err">Falla de motor (HAM)</button>
+        <button data-action="rain" id="rain" aria-pressed="false">Lluvia: apagada</button>
+        <button data-action="reset">Reiniciar carrera</button>
+      </div>
+    </section>
+    <section class="panel" aria-label="Eventos del sistema">
+      <h2>Sistema</h2>
+      <div class="btns">
+        <button data-action="burst" id="burst" aria-pressed="false">Pico de tráfico</button>
+        <button data-action="slow" class="btn-warn">Procesador lento</button>
+        <button data-action="freeze" id="freeze" aria-pressed="false">Congelar procesador</button>
+        <button data-action="leak" id="leak" class="btn-err" aria-pressed="false">Fuga de memoria: apagada</button>
+      </div>
+      <p class="muted" style="margin:10px 0 0">La fuga llena memoria real: si pasa los 256 MiB, Docker mata el contenedor del procesador y se reinicia solo.</p>
+    </section>
+  </aside>
+
+  <main>
+    <section class="panel" aria-label="Estado del procesador de telemetría">
+      <h2>Procesador de telemetría</h2>
+      <div class="sys" id="sys">Conectando…</div>
+    </section>
+    <section class="panel" aria-label="Autos">
+      <h2>Autos</h2>
+      <div class="cars" id="cars"></div>
+    </section>
+    <section class="panel" aria-label="Registro de eventos">
+      <h2>Eventos</h2>
+      <div class="logs" id="logs" role="log" aria-live="off"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let built = false;
+
+async function act(name, arg) {
+  try { await fetch('/api/action/' + name + (arg ? '/' + arg : ''), { method: 'POST' }); }
+  catch (e) { /* el siguiente refresco muestra el estado real */ }
+  refresh();
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.pit) act('pit', b.dataset.pit);
+  else if (b.dataset.nitro) act('nitro', b.dataset.nitro);
+  else if (b.dataset.action) act(b.dataset.action);
+});
+
+function bar(label, value, max, text, color) {
+  const w = Math.max(0, Math.min(100, value / max * 100));
+  return '<div class="row"><span>' + label + '</span><div class="bar"><i style="width:' + w.toFixed(0) + '%;background:' + color + '"></i></div><span>' + text + '</span></div>';
+}
+const goodHigh = (v) => v <= 15 ? 'var(--err)' : v <= 30 ? 'var(--warn)' : 'var(--ok)';
+const goodLow = (v) => v >= 80 ? 'var(--err)' : v >= 60 ? 'var(--warn)' : 'var(--ok)';
+
+function render(s) {
+  $('clock').textContent = 'T+ ' + s.clock;
+  if (!built) {
+    $('pitRow').innerHTML = s.drivers.map(d => '<button data-pit="' + d.code + '">Pit ' + d.code + '</button>').join('');
+    $('nitroRow').innerHTML = s.drivers.map(d => '<button data-nitro="' + d.code + '" aria-pressed="false">Nitro ' + d.code + '</button>').join('');
+    built = true;
+  }
+  document.querySelectorAll('[data-nitro]').forEach(b => {
+    const d = s.drivers.find(x => x.code === b.dataset.nitro); b.setAttribute('aria-pressed', d && d.nitro > 0);
+  });
+  const p = s.processor;
+  $('rain').textContent = 'Lluvia: ' + (s.rain ? 'encendida' : 'apagada'); $('rain').setAttribute('aria-pressed', s.rain);
+  $('burst').setAttribute('aria-pressed', s.burst);
+  $('freeze').textContent = p.frozen ? 'Reanudar procesador' : 'Congelar procesador'; $('freeze').setAttribute('aria-pressed', p.frozen);
+  $('leak').textContent = 'Fuga de memoria: ' + (p.leak ? 'encendida' : 'apagada'); $('leak').setAttribute('aria-pressed', p.leak);
+
+  if (!p.reachable) {
+    $('sys').innerHTML = '<b class="err">SIN RESPUESTA</b> · el procesador no responde (¿se está reiniciando?)';
+  } else {
+    const estado = p.frozen ? '<b class="err">CONGELADO</b>' : p.slowTicks > 0 ? '<b class="warn">LENTO</b>' : '<b class="ok">OK</b>';
+    const mem = p.memoryMiB, memCls = mem > 243 ? 'err' : mem > 218 ? 'warn' : 'ok';
+    $('sys').innerHTML = 'Estado: ' + estado + ' · cola: <b>' + p.backlog + '</b> eventos · memoria: <b class="' + memCls + '">' +
+      mem.toFixed(0) + ' MiB</b> de 256 · activo hace <b>' + Math.round(p.uptimeSeconds) + ' s</b>';
+  }
+
+  $('cars').innerHTML = s.drivers.map(d => {
+    const badges = (d.nitro > 0 ? '<span class="badge nitro">NITRO</span> ' : '') + (d.inPit ? '<span class="badge">en boxes</span> ' : '') +
+      (d.engineDown ? '<span class="badge bad">motor roto</span> ' : '') + (d.retired ? '<span class="badge bad">abandonó</span>' : '');
+    return '<div class="car" style="--c:' + esc(d.color) + '"><header><b>' + esc(d.code) + '</b><span>' + badges + '<span class="muted"> vuelta ' + d.laps + '</span></span></header>' +
+      bar('Velocidad', d.speed, 360, d.speed.toFixed(0) + ' km/h', 'var(--info)') +
+      bar('Batería', d.battery, 100, d.battery.toFixed(0) + ' %', goodHigh(d.battery)) +
+      bar('Ruedas', d.deg, 100, d.deg.toFixed(0) + ' %', goodLow(d.deg)) +
+      bar('Combustible', d.fuel, 100, d.fuel.toFixed(1) + ' kg', goodHigh(d.fuel)) +
+      bar('Motor', d.temp, 160, d.temp.toFixed(0) + ' °C', d.temp > 130 ? 'var(--err)' : d.temp > 115 ? 'var(--warn)' : 'var(--ok)') + '</div>';
+  }).join('');
+}
+
+async function refresh() {
+  try {
+    const [s, logs] = await Promise.all([fetch('/api/status').then(r => r.json()), fetch('/api/logs').then(r => r.json())]);
+    render(s);
+    $('logs').innerHTML = logs.map(l => '<div class="log"><span class="muted">' + esc(l.time) + '</span><span class="' + esc(l.level) + '">' + esc(l.level) + '</span><span>' + esc(l.message) + '</span></div>').join('');
+  } catch (e) {
+    $('sys').innerHTML = '<b class="err">Sin conexión con el simulador</b>';
+  }
+}
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>

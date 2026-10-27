@@ -1,0 +1,11 @@
+# Compilación de .NET (se generan al compilar fuera de Docker)
+bin/
+obj/
+
+# Editores y sistema
+.vs/
+.vscode/
+.idea/
+*.user
+Thumbs.db
+.DS_Store

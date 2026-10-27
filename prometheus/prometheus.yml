@@ -1,0 +1,23 @@
+# Rol de Prometheus: recolectar ("scrape") las métricas cada pocos segundos y guardarlas.
+global:
+  scrape_interval: 2s
+  evaluation_interval: 5s
+
+scrape_configs:
+  # Métricas de negocio y de aplicación, publicadas por el Collector
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["f1-collector:8889"]
+
+  # Métricas de infraestructura (memoria y red de los contenedores)
+  - job_name: cadvisor
+    scrape_interval: 5s
+    # cAdvisor manda sus propias marcas de tiempo; con ellas Prometheus no descarta a tiempo las series
+    # de un contenedor recreado. Se usa la hora del scrape para que las series viejas venzan al instante.
+    honor_timestamps: false
+    static_configs:
+      - targets: ["f1-cadvisor:8080"]
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: container_memory_usage_bytes|container_network_receive_bytes_total|container_spec_memory_limit_bytes|container_oom_events_total
+        action: keep

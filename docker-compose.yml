@@ -1,0 +1,99 @@
+# Demo de observabilidad: simulador de F1 -> OTLP -> Collector -> Prometheus -> Grafana
+# Stack independiente del de PharmaGo: otros nombres de contenedor y otros puertos.
+
+x-sim-build: &sim-build
+  context: ./simulator
+
+services:
+  # Simulador de la carrera (emite métricas de negocio) y panel de control web
+  f1-emitter:
+    build: *sim-build
+    image: f1-sim:local
+    container_name: f1-emitter
+    environment:
+      - ROLE=emitter
+      - OTLP_ENDPOINT=http://f1-collector:4317
+      - PROCESSOR_URL=http://f1-processor:8080
+    ports:
+      - "5100:8080"          # panel de control: http://localhost:5100
+    depends_on:
+      - f1-collector
+    restart: unless-stopped
+
+  # Procesador de telemetría (emite métricas de aplicación). Tiene un límite de memoria real.
+  f1-processor:
+    image: f1-sim:local
+    container_name: f1-processor
+    environment:
+      - ROLE=processor
+      - OTLP_ENDPOINT=http://f1-collector:4317
+    mem_limit: 256m
+    memswap_limit: 256m      # sin swap: al pasar el límite, Docker lo mata (OOMKilled)
+    ports:
+      - "5101:8080"          # solo para inspeccionar: http://localhost:5101/status
+    depends_on:
+      - f1-emitter
+      - f1-collector
+    restart: unless-stopped  # tras un OOM se reinicia solo y sus contadores vuelven a cero
+
+  f1-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: f1-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./collector/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "8890:8889"          # métricas en formato Prometheus: http://localhost:8890/metrics
+    restart: unless-stopped
+
+  f1-cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.6
+    container_name: f1-cadvisor
+    command:
+      - "--docker_only=true"
+      - "--housekeeping_interval=2s"
+      - "--store_container_labels=false"
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    ports:
+      - "8081:8080"          # http://localhost:8081
+    restart: unless-stopped
+
+  f1-prometheus:
+    image: prom/prometheus:latest
+    container_name: f1-prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9091:9090"          # http://localhost:9091
+    depends_on:
+      - f1-collector
+      - f1-cadvisor
+    restart: unless-stopped
+
+  f1-grafana:
+    image: grafana/grafana:latest
+    container_name: f1-grafana
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/f1-telemetria.json
+      - GF_DASHBOARDS_MIN_REFRESH_INTERVAL=1s
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3001:3000"          # http://localhost:3001 (entra directo, sin login)
+    depends_on:
+      - f1-prometheus
+    restart: unless-stopped
