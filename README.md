@@ -28,6 +28,7 @@ anteriores: sin eso, los gráficos muestran líneas repetidas hasta que esas ser
 | Panel de control (botones de la demo) | http://localhost:5100 |
 | Grafana (dashboard ya cargado, sin login) | http://localhost:3001 |
 | Prometheus (para mostrar PromQL) | http://localhost:9091 |
+| Alertas en Prometheus | http://localhost:9091/alerts |
 | Métricas crudas del Collector (formato Prometheus) | http://localhost:8890/metrics |
 | cAdvisor | http://localhost:8081 |
 
@@ -51,6 +52,19 @@ Las de infraestructura las publica cAdvisor y Prometheus las lee directo; el res
 2. **Nitro** en un piloto: se ve en velocidad, batería, temperatura y tiempo de vuelta.
 3. **Congelar procesador** + **Pico de tráfico**: el heartbeat cae a 0, la memoria sube hasta los 256 MiB,
    Docker mata el contenedor (OOMKilled) y se reinicia solo. El counter vuelve a cero y `resets()` lo detecta.
+4. **Alerta de ruedas:** con **Nitro** el desgaste sube más rápido. Al pasar el 75 % durante 10 s, la alerta
+   `DesgasteDeRuedasAlto` (definida en `prometheus/alerts.yml`) pasa de *pending* a *firing*: se ve en
+   http://localhost:9091/alerts, en Grafana (Alerting → Alert rules) y en el panel "Alertas de ruedas activas".
+   Una **parada en boxes** baja el desgaste y la alerta se resuelve.
+
+## Alertas
+
+`alerta-sonora.html` (se abre con doble clic) consulta a Prometheus cada 2 s y suena cuando una alerta pasa a
+*firing* (y con otro tono cuando se resuelve). Hay que apretar "Activar sonido" una vez al abrirla.
+
+Prometheus evalúa la regla cada 5 s. Estados: *inactive* (todo bien), *pending* (la condición se cumple pero aún no
+pasaron los 10 s del `for`) y *firing* (disparada). La demo **no incluye Alertmanager**: la alerta se ve en las
+interfaces, pero no envía correos ni mensajes.
 
 ## Qué es real y qué es simulado
 

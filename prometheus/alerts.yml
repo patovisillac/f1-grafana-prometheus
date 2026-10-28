@@ -1,0 +1,14 @@
+# Reglas de alerta: Prometheus las evalúa cada "evaluation_interval" (5 s) y Grafana las muestra.
+groups:
+  - name: f1-ruedas
+    rules:
+      - alert: DesgasteDeRuedasAlto
+        # Una serie por piloto: la alerta se dispara de forma independiente para cada uno
+        expr: f1_tyre_degradation_percent > 75
+        # Debe mantenerse 10 s seguidos: evita avisar por un pico momentáneo
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ruedas de {{ $labels.driver }} al {{ $value | printf \"%.0f\" }}%"
+          description: "El desgaste superó el 75%: conviene una parada en boxes."

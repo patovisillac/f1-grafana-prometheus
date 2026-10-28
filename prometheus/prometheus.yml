@@ -3,6 +3,10 @@ global:
   scrape_interval: 2s
   evaluation_interval: 5s
 
+# Reglas de alerta (ver alerts.yml)
+rule_files:
+  - /etc/prometheus/alerts.yml
+
 scrape_configs:
   # Métricas de negocio y de aplicación, publicadas por el Collector
   - job_name: otel-collector

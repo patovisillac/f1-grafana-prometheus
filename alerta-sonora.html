@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alertas de la demo</title>
+<style>
+  :root { --bg: #111217; --panel: #181b1f; --borde: #2c3235; --texto: #d8d9da; --mute: #8e8e9a;
+          --verde: #73bf69; --amarillo: #f2cc0c; --rojo: #f2495c; --naranja: #ff9830; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--texto);
+         font: 18px/1.4 "Segoe UI", system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; padding: 40px 24px; }
+  body.disparada { animation: parpadeo 1s ease-in-out infinite; }
+  @keyframes parpadeo { 0%, 100% { background: var(--bg); } 50% { background: #3a1218; } }
+  main { width: 100%; max-width: 760px; }
+  h1 { font-size: 22px; font-weight: 600; color: var(--mute); margin: 0 0 24px; }
+  #estado { font-size: 56px; font-weight: 700; letter-spacing: -1px; margin: 0 0 6px; }
+  #estado.ok { color: var(--verde); } #estado.pendiente { color: var(--amarillo); } #estado.disparada { color: var(--rojo); }
+  #detalle { color: var(--mute); margin: 0 0 28px; }
+  .fila { display: flex; align-items: center; gap: 16px; background: var(--panel); border: 2px solid var(--borde); border-left-width: 8px;
+          border-radius: 6px; padding: 14px 18px; margin-bottom: 10px; }
+  .fila.firing { border-left-color: var(--rojo); } .fila.pending { border-left-color: var(--amarillo); }
+  .fila .nombre { font-weight: 600; width: 260px; } .fila .texto { color: var(--mute); flex: 1; }
+  .chip { font: 600 14px Consolas, monospace; padding: 3px 10px; border-radius: 4px; text-transform: uppercase; }
+  .chip.firing { background: var(--rojo); color: #111217; } .chip.pending { background: var(--amarillo); color: #111217; }
+  .barra { display: flex; align-items: center; gap: 14px; margin-top: 28px; }
+  button { font: 600 17px "Segoe UI", sans-serif; background: var(--naranja); color: #111217; border: 0; border-radius: 6px; padding: 12px 22px; cursor: pointer; }
+  button.activo { background: transparent; color: var(--verde); border: 2px solid var(--verde); }
+  button.sec { background: transparent; color: var(--texto); border: 2px solid var(--borde); }
+  #conexion { color: var(--mute); font-size: 15px; margin-left: auto; }
+  #conexion.error { color: var(--rojo); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Alertas de la demo · Prometheus</h1>
+  <p id="estado" class="ok">Todo en orden</p>
+  <p id="detalle">Esperando datos…</p>
+  <div id="lista"></div>
+  <div class="barra">
+    <button id="activar">Activar sonido</button>
+    <button id="probar" class="sec">Probar sonido</button>
+    <span id="conexion">conectando…</span>
+  </div>
+</main>
+
+<script>
+const PROMETHEUS = 'http://localhost:9091';   // la API de Prometheus; en la demo está publicada en este puerto
+const CADA_MS = 2000;
+
+let audio = null;          // se crea con un clic: el navegador no deja reproducir sonido antes
+let anterior = null;       // alertas del sondeo anterior (null = todavía no hubo ninguno)
+let sonidos = 0;           // cuántas veces se pidió un sonido (sirve para comprobar el funcionamiento)
+
+// Una alerta se identifica por su nombre y sus etiquetas (por ejemplo, el piloto).
+const clave = (a) => a.labels.alertname + '|' + Object.keys(a.labels).sort().map(k => k + '=' + a.labels[k]).join(',');
+
+// Compara el sondeo anterior con el actual: devuelve las que se acaban de disparar y las que se resolvieron.
+function detectar(prev, actual) {
+  const estadoPrev = new Map((prev || []).map(a => [clave(a), a.state]));
+  const estadoAct = new Map(actual.map(a => [clave(a), a.state]));
+  const nuevas = actual.filter(a => a.state === 'firing' && estadoPrev.get(clave(a)) !== 'firing');
+  const resueltas = (prev || []).filter(a => a.state === 'firing' && estadoAct.get(clave(a)) !== 'firing');
+  return { nuevas, resueltas };
+}
+
+function tono(frecuencia, inicio, duracion, volumen = 0.3) {
+  const o = audio.createOscillator(), g = audio.createGain();
+  o.type = 'sine'; o.frequency.value = frecuencia;
+  g.gain.setValueAtTime(0, audio.currentTime + inicio);
+  g.gain.linearRampToValueAtTime(volumen, audio.currentTime + inicio + 0.02);
+  g.gain.linearRampToValueAtTime(0, audio.currentTime + inicio + duracion);
+  o.connect(g).connect(audio.destination);
+  o.start(audio.currentTime + inicio); o.stop(audio.currentTime + inicio + duracion + 0.05);
+}
+function sonarAlerta() { sonidos++; if (audio) { for (let i = 0; i < 3; i++) tono(880, i * 0.28, 0.18); } }
+function sonarResuelta() { sonidos++; if (audio) { tono(660, 0, 0.18); tono(440, 0.22, 0.3); } }
+
+function pintar(alertas) {
+  const firing = alertas.filter(a => a.state === 'firing'), pending = alertas.filter(a => a.state === 'pending');
+  const est = document.getElementById('estado'), det = document.getElementById('detalle');
+  document.body.classList.toggle('disparada', firing.length > 0);
+  if (firing.length) { est.className = 'disparada'; est.textContent = firing.length === 1 ? '1 alerta disparada' : firing.length + ' alertas disparadas'; det.textContent = 'La condición se mantuvo el tiempo configurado.'; }
+  else if (pending.length) { est.className = 'pendiente'; est.textContent = 'Pendiente'; det.textContent = 'La condición se cumple, pero todavía no pasó el tiempo configurado (for).'; }
+  else { est.className = 'ok'; est.textContent = 'Todo en orden'; det.textContent = 'No hay alertas activas.'; }
+  const orden = { firing: 0, pending: 1 };
+  document.getElementById('lista').innerHTML = alertas.slice().sort((a, b) => orden[a.state] - orden[b.state] || clave(a).localeCompare(clave(b))).map(a =>
+    `<div class="fila ${a.state}"><span class="chip ${a.state}">${a.state === 'firing' ? 'disparada' : 'pendiente'}</span>
+     <span class="nombre">${a.labels.alertname}${a.labels.driver ? ' · ' + a.labels.driver : ''}</span>
+     <span class="texto">${(a.annotations && a.annotations.summary) || ''}</span></div>`).join('');
+}
+
+async function sondear() {
+  const con = document.getElementById('conexion');
+  try {
+    const r = await fetch(PROMETHEUS + '/api/v1/alerts', { cache: 'no-store' });
+    const alertas = (await r.json()).data.alerts;
+    if (anterior !== null) {                       // el primer sondeo no suena: solo toma una foto del estado
+      const { nuevas, resueltas } = detectar(anterior, alertas);
+      if (nuevas.length) sonarAlerta(); else if (resueltas.length) sonarResuelta();
+    }
+    anterior = alertas;
+    pintar(alertas);
+    con.className = ''; con.textContent = 'Prometheus conectado · ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    con.className = 'error'; con.textContent = 'Prometheus no responde en ' + PROMETHEUS;
+  }
+}
+
+function activarAudio() {
+  if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+  if (audio.state === 'suspended') audio.resume();
+  const b = document.getElementById('activar'); b.textContent = 'Sonido activado'; b.classList.add('activo');
+}
+document.getElementById('activar').addEventListener('click', () => { activarAudio(); sonarAlerta(); });
+document.getElementById('probar').addEventListener('click', () => { activarAudio(); sonarAlerta(); });
+
+// Autoprueba de la lógica (abrir con ?autoprueba): no hace falta Prometheus.
+if (location.search.includes('autoprueba')) {
+  const al = (driver, state) => ({ labels: { alertname: 'DesgasteDeRuedasAlto', driver }, state });
+  const t1 = detectar(null, [al('HAM', 'pending')]);
+  const t2 = detectar([al('HAM', 'pending')], [al('HAM', 'firing'), al('VER', 'pending')]);
+  const t3 = detectar([al('HAM', 'firing'), al('VER', 'pending')], [al('HAM', 'firing'), al('VER', 'firing')]);
+  const t4 = detectar([al('HAM', 'firing'), al('VER', 'firing')], [al('VER', 'firing')]);
+  const t5 = detectar([al('VER', 'firing')], [al('VER', 'firing')]);
+  const ok = t1.nuevas.length === 0 && t2.nuevas.length === 1 && t2.nuevas[0].labels.driver === 'HAM' && t3.nuevas.length === 1 &&
+             t3.nuevas[0].labels.driver === 'VER' && t4.resueltas.length === 1 && t4.resueltas[0].labels.driver === 'HAM' && t5.nuevas.length === 0 && t5.resueltas.length === 0;
+  document.title = 'AUTOPRUEBA ' + (ok ? 'OK' : 'FALLO');
+} else {
+  sondear();
+  setInterval(sondear, CADA_MS);
+}
+</script>
+</body>
+</html>
